@@ -1,0 +1,553 @@
+-- Turbo Hub Roxo BETA 1.041 - voo experimental do personagem e do veículo
+-- Rastreamento visual + previsão aproximada do ponto de queda.
+-- O voo usa física local e pode não funcionar se o servidor controlar o veículo.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local PURPLE = Color3.fromRGB(185, 90, 255)
+local PINK = Color3.fromRGB(255, 90, 220)
+local WHITE = Color3.fromRGB(245, 235, 255)
+
+-- Limpa versões anteriores
+for _, name in ipairs({"TurboHubLoading", "TurboHubRoxo"}) do
+    local old = playerGui:FindFirstChild(name)
+    if old then old:Destroy() end
+end
+for _, name in ipairs({
+    "TurboHubBallMarker", "TurboHubLongRangeGuide",
+    }) do
+    local old = Workspace:FindFirstChild(name)
+    if old then old:Destroy() end
+end
+
+-- Loading screen mais visível
+local loadingGui = Instance.new("ScreenGui")
+loadingGui.Name = "TurboHubLoading"
+loadingGui.IgnoreGuiInset = true
+loadingGui.ResetOnSpawn = false
+loadingGui.DisplayOrder = 999
+loadingGui.Parent = playerGui
+
+local bg = Instance.new("Frame")
+bg.Size = UDim2.fromScale(1, 1)
+bg.BackgroundColor3 = Color3.fromRGB(12, 8, 20)
+bg.BorderSizePixel = 0
+bg.Parent = loadingGui
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -30, 0, 46)
+title.Position = UDim2.new(0, 15, 0.5, -75)
+title.BackgroundTransparency = 1
+title.Text = "TURBO HUB ROXO"
+title.TextColor3 = PURPLE
+title.TextSize = 26
+title.Font = Enum.Font.GothamBold
+title.Parent = bg
+
+local subtitle = Instance.new("TextLabel")
+subtitle.Size = UDim2.new(1, -30, 0, 28)
+subtitle.Position = UDim2.new(0, 15, 0.5, -30)
+subtitle.BackgroundTransparency = 1
+subtitle.Text = "Iniciando rastreamento visual..."
+subtitle.TextColor3 = WHITE
+subtitle.TextSize = 13
+subtitle.Font = Enum.Font.Gotham
+subtitle.Parent = bg
+
+local barBack = Instance.new("Frame")
+barBack.Size = UDim2.new(0.7, 0, 0, 9)
+barBack.Position = UDim2.new(0.15, 0, 0.5, 12)
+barBack.BackgroundColor3 = Color3.fromRGB(48, 31, 60)
+barBack.BorderSizePixel = 0
+barBack.Parent = bg
+Instance.new("UICorner", barBack).CornerRadius = UDim.new(1, 0)
+
+local bar = Instance.new("Frame")
+bar.Size = UDim2.new(0, 0, 1, 0)
+bar.BackgroundColor3 = PURPLE
+bar.BorderSizePixel = 0
+bar.Parent = barBack
+Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+
+local percent = Instance.new("TextLabel")
+percent.Size = UDim2.new(1, 0, 0, 24)
+percent.Position = UDim2.new(0, 0, 0.5, 28)
+percent.BackgroundTransparency = 1
+percent.Text = "0%"
+percent.TextColor3 = Color3.fromRGB(210, 180, 230)
+percent.TextSize = 12
+percent.Font = Enum.Font.GothamSemibold
+percent.Parent = bg
+
+for i = 1, 100 do
+    bar.Size = UDim2.new(i / 100, 0, 1, 0)
+    percent.Text = i .. "%"
+    if i == 25 then
+        subtitle.Text = "Localizando a bola..."
+    elseif i == 55 then
+        subtitle.Text = "Calculando trajetória..."
+    elseif i == 80 then
+        subtitle.Text = "Preparando guia visual..."
+    end
+    task.wait(0.018)
+end
+task.wait(0.45)
+loadingGui:Destroy()
+
+-- Menu
+local gui = Instance.new("ScreenGui")
+gui.Name = "TurboHubRoxo"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 999
+gui.Enabled = true
+gui.Parent = playerGui
+
+local main = Instance.new("Frame")
+main.Size = UDim2.fromOffset(230, 245)
+main.Position = UDim2.new(0.03, 0, 0.22, 0)
+main.BackgroundColor3 = Color3.fromRGB(20, 13, 31)
+main.BorderSizePixel = 0
+main.Active = true
+main.Draggable = true
+main.Parent = gui
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 12)
+local outline = Instance.new("UIStroke", main)
+outline.Color = PURPLE
+outline.Thickness = 1.5
+
+local header = Instance.new("TextLabel")
+header.Size = UDim2.new(1, -82, 0, 36)
+header.Position = UDim2.fromOffset(12, 3)
+header.BackgroundTransparency = 1
+header.Text = "TURBO HUB • BETA 1.041"
+header.TextColor3 = WHITE
+header.TextSize = 14
+header.Font = Enum.Font.GothamBold
+header.TextXAlignment = Enum.TextXAlignment.Left
+header.Parent = main
+
+local close = Instance.new("TextButton")
+close.Size = UDim2.fromOffset(30, 28)
+close.Position = UDim2.new(1, -35, 0, 5)
+close.BackgroundColor3 = Color3.fromRGB(75, 28, 95)
+close.Text = "×"
+close.TextColor3 = WHITE
+close.TextSize = 22
+close.Font = Enum.Font.GothamBold
+close.Parent = main
+Instance.new("UICorner", close).CornerRadius = UDim.new(0, 8)
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -20, 0, 27)
+status.Position = UDim2.fromOffset(10, 38)
+status.BackgroundTransparency = 1
+status.Text = "Rastreamento visual ativo..."
+status.TextColor3 = Color3.fromRGB(210, 180, 230)
+status.TextSize = 12
+status.Font = Enum.Font.Gotham
+status.Parent = main
+
+local function makeButton(label, y)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -20, 0, 34)
+    b.Position = UDim2.fromOffset(10, y)
+    b.BackgroundColor3 = Color3.fromRGB(54, 28, 75)
+    b.TextColor3 = WHITE
+    b.TextSize = 13
+    b.Font = Enum.Font.GothamSemibold
+    b.Text = label
+    b.Parent = main
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    local stroke = Instance.new("UIStroke", b)
+    stroke.Color = PURPLE
+    stroke.Transparency = 0.45
+    return b
+end
+
+local trackButton = makeButton("Rastreamento: LIGADO", 68)
+local predictionButton = makeButton("Trajetória visual: LIGADA", 106)
+local flightToggleButton = makeButton("Assistente de Voo: DESLIGADO", 144)
+local minimizeButton = makeButton("−", 204)
+
+local note = Instance.new("TextLabel")
+note.Size = UDim2.new(1, -20, 0, 20)
+note.Position = UDim2.fromOffset(10, 222)
+note.BackgroundTransparency = 1
+note.Text = "Guia visual • controle manual"
+note.TextColor3 = Color3.fromRGB(175, 155, 190)
+note.TextSize = 10
+note.Font = Enum.Font.Gotham
+note.Parent = main
+
+-- Inicia recolhido para não cobrir os botões do jogo.
+status.Visible = false
+trackButton.Visible = false
+predictionButton.Visible = false
+flightToggleButton.Visible = false
+note.Visible = false
+header.Visible = false
+close.Visible = false
+main.Size = UDim2.fromOffset(175, 48)
+header.Text = "TURBO HUB • BETA 1.041"
+header.Visible = true
+header.Size = UDim2.new(1, -42, 1, 0)
+header.Position = UDim2.fromOffset(10, 0)
+minimizeButton.Visible = true
+minimizeButton.Size = UDim2.fromOffset(36, 34)
+minimizeButton.Position = UDim2.new(1, -41, 0, 7)
+minimizeButton.Text = "ABRIR ☰"
+
+local tracking, prediction, minimized = true, true, true
+local flightAssistantEnabled = false
+local flyingVisual = false
+local flightVelocity, flightGyro, flightConnection
+local flightTarget, flightHumanoid, flightMode
+local ballPart -- alvo compartilhado: a bola do jogo
+local findBall -- declarada antes para o voo poder consultá-la
+
+-- Voo de perseguição: levita e se desloca em direção à bola, seja no carro ou a pé.
+local flyButton = Instance.new("TextButton")
+flyButton.Name = "TurboHubFlyButton"
+flyButton.Size = UDim2.fromOffset(118, 44)
+flyButton.Position = UDim2.new(1, -150, 0.42, 0)
+flyButton.BackgroundColor3 = Color3.fromRGB(54, 28, 75)
+flyButton.TextColor3 = WHITE
+flyButton.TextSize = 15
+flyButton.Font = Enum.Font.GothamBold
+flyButton.Text = "✈ VOAR"
+flyButton.Visible = false
+flyButton.Parent = gui
+Instance.new("UICorner", flyButton).CornerRadius = UDim.new(0, 10)
+local flyStroke = Instance.new("UIStroke", flyButton)
+flyStroke.Color = PURPLE
+flyStroke.Thickness = 1.5
+
+local function stopVisualFlight()
+    flyingVisual = false
+    if flightConnection then flightConnection:Disconnect(); flightConnection = nil end
+    if flightVelocity then flightVelocity:Destroy(); flightVelocity = nil end
+    if flightGyro then flightGyro:Destroy(); flightGyro = nil end
+    flightTarget, flightHumanoid, flightMode = nil, nil, nil
+    flyButton.Text = "✈ VOAR"
+    flyButton.BackgroundColor3 = Color3.fromRGB(54, 28, 75)
+end
+
+local function startFlight()
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root then
+        status.Text = "Personagem ainda não carregou • tente novamente"
+        return false
+    end
+
+    local seat = humanoid.SeatPart
+    if seat then
+        -- Tenta aplicar a força ao conjunto físico do veículo, não ao avatar sentado.
+        flightTarget = seat.AssemblyRootPart or seat
+        flightMode = "carro"
+        flightHumanoid = humanoid
+    else
+        flightTarget = root
+        flightMode = "personagem"
+        flightHumanoid = humanoid
+    end
+
+    flightVelocity = Instance.new("BodyVelocity")
+    flightVelocity.Name = "TurboHubFlightVelocity"
+    flightVelocity.MaxForce = Vector3.new(1e7, 1e7, 1e7)
+    flightVelocity.P = 1e4
+    flightVelocity.Velocity = Vector3.zero
+    flightVelocity.Parent = flightTarget
+
+    flightGyro = Instance.new("BodyGyro")
+    flightGyro.Name = "TurboHubFlightGyro"
+    flightGyro.MaxTorque = Vector3.new(1e7, 1e7, 1e7)
+    flightGyro.P = 1e4
+    flightGyro.D = 500
+    flightGyro.CFrame = flightTarget.CFrame
+    flightGyro.Parent = flightTarget
+
+    flightConnection = RunService.RenderStepped:Connect(function()
+        if not flightTarget or not flightTarget.Parent or not flightHumanoid or not flightHumanoid.Parent then
+            stopVisualFlight()
+            status.Text = "Alvo do voo sumiu • voo parado"
+            return
+        end
+        -- Se o jogador saiu do banco durante o voo do carro, para com segurança.
+        if flightMode == "carro" and not flightHumanoid.SeatPart then
+            stopVisualFlight()
+            status.Text = "Tu saiu do carro • voo parado"
+            return
+        elseif flightMode == "personagem" and flightHumanoid.SeatPart then
+            stopVisualFlight()
+            status.Text = "Entrou no carro • toque VOAR de novo"
+            return
+        end
+
+        -- Atualiza o alvo: a bola pode reaparecer/mudar de instância durante a partida.
+        if not ballPart or not ballPart.Parent then
+            ballPart = findBall()
+        end
+        if not ballPart then
+            flightVelocity.Velocity = Vector3.new(0, 8, 0) -- levita no lugar enquanto procura a bola
+            status.Text = "Levitação ativa • procurando a bola..."
+            return
+        end
+
+        -- Persegue a posição atual da bola, mirando um ponto acima dela para não bater no chão.
+        local targetPosition = ballPart.Position + Vector3.new(0, 10, 0)
+        local offset = targetPosition - flightTarget.Position
+        local distance = offset.Magnitude
+        local speed = math.clamp(distance * 1.25, 10, 48)
+        if distance < 3 then speed = 0 end
+        flightVelocity.Velocity = offset.Magnitude > 0.01 and offset.Unit * speed or Vector3.zero
+
+        -- Mantém o nariz apontado para a bola sem inclinar o veículo/personagem para baixo.
+        local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+        if flatOffset.Magnitude > 0.5 then
+            flightGyro.CFrame = CFrame.lookAt(flightTarget.Position, flightTarget.Position + flatOffset.Unit)
+        end
+    end)
+    return true
+end
+
+flightToggleButton.Activated:Connect(function()
+    flightAssistantEnabled = not flightAssistantEnabled
+    flightToggleButton.Text = "Assistente de Voo: " .. (flightAssistantEnabled and "LIGADO" or "DESLIGADO")
+    flyButton.Visible = flightAssistantEnabled
+    if not flightAssistantEnabled then
+        stopVisualFlight()
+        status.Text = "Assistente de Voo desativado"
+    else
+        status.Text = "Assistente pronto • VOAR persegue a bola"
+    end
+end)
+
+flyButton.Activated:Connect(function()
+    if not flightAssistantEnabled then return end
+    if flyingVisual then
+        stopVisualFlight()
+        status.Text = "Voo parado"
+    else
+        if startFlight() then
+            flyingVisual = true
+            flyButton.Text = "■ PARAR"
+            flyButton.BackgroundColor3 = Color3.fromRGB(110, 35, 125)
+            status.Text = "Levitação ativa • perseguindo a bola (experimental)"
+        end
+    end
+end)
+local lastPos, lastTime
+local trailParts = {}
+local connection
+
+findBall = function()
+    local cs = Workspace:FindFirstChild("CarSoccer")
+    if cs then
+        local mv = cs:FindFirstChild("MatchView")
+        local folder = mv and mv:FindFirstChild("Ball")
+        local part = folder and folder:FindFirstChild("ball")
+        if part and part:IsA("BasePart") then return part end
+        local free = cs:FindFirstChild("Ball")
+        part = free and free:FindFirstChild("ball")
+        if part and part:IsA("BasePart") then return part end
+        part = cs:FindFirstChild("BallIndicator")
+        if part and part:IsA("BasePart") then return part end
+    end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and string.lower(obj.Name) == "ball" then
+            return obj
+        end
+    end
+    return nil
+end
+
+local function neonPart(name, shape, size)
+    local p = Instance.new("Part")
+    p.Name = name
+    p.Anchored = true
+    p.CanCollide = false
+    p.CanTouch = false
+    p.CanQuery = false
+    p.CastShadow = false
+    p.Material = Enum.Material.Neon
+    p.Color = PURPLE
+    p.Transparency = 0.15
+    p.Shape = shape or Enum.PartType.Block
+    p.Size = size or Vector3.new(0.2, 0.2, 1)
+    p.Parent = Workspace
+    return p
+end
+
+local marker = neonPart("TurboHubBallMarker", Enum.PartType.Ball, Vector3.new(2.2, 2.2, 2.2))
+marker.Transparency = 0.35
+local guideLine = neonPart("TurboHubLongRangeGuide", Enum.PartType.Block, Vector3.new(0.22, 0.22, 1))
+
+local function clearTrail()
+    for _, part in ipairs(trailParts) do
+        if part and part.Parent then part:Destroy() end
+    end
+    table.clear(trailParts)
+end
+
+local function drawTrajectory(pos, vel)
+    clearTrail()
+    if not prediction or vel.Magnitude < 2 then return end
+    local gravity = Vector3.new(0, -Workspace.Gravity, 0)
+    local previous = pos
+    for i = 1, 22 do
+        local t = i * 0.09
+        local nextPos = pos + vel * t + 0.5 * gravity * t * t
+        local delta = nextPos - previous
+        if delta.Magnitude > 0.1 then
+            local seg = neonPart("TurboHubTrajectorySegment", Enum.PartType.Block,
+                Vector3.new(0.12, 0.12, delta.Magnitude))
+            seg.Color = PINK
+            seg.Transparency = 0.22 + i / 32
+            seg.CFrame = CFrame.lookAt((previous + nextPos) / 2, nextPos)
+            table.insert(trailParts, seg)
+        end
+        previous = nextPos
+    end
+end
+
+-- Usa velocidade física quando disponível; fallback para velocidade medida entre amostras.
+local function getVelocity(part, pos, now)
+    local physical = part.AssemblyLinearVelocity
+    if physical and physical.Magnitude > 1 then
+        return physical
+    end
+    if lastPos and lastTime and now > lastTime then
+        return (pos - lastPos) / (now - lastTime)
+    end
+    return Vector3.zero
+end
+
+-- O sistema de círculo de pouso foi removido nesta versão.
+local function setHidden(hidden)
+    -- Mantém somente os elementos de rastreamento visual.
+end
+
+trackButton.Activated:Connect(function()
+    tracking = not tracking
+    trackButton.Text = "Rastreamento: " .. (tracking and "LIGADO" or "DESLIGADO")
+    if not tracking then
+        marker.Transparency = 1
+        guideLine.Transparency = 1
+        setHidden(true)
+    end
+end)
+
+predictionButton.Activated:Connect(function()
+    prediction = not prediction
+    predictionButton.Text = "Trajetória visual: " .. (prediction and "LIGADA" or "DESLIGADA")
+    if not prediction then
+        clearTrail()
+        setHidden(true)
+    end
+end)
+
+minimizeButton.Activated:Connect(function()
+    minimized = not minimized
+    status.Visible = not minimized
+    trackButton.Visible = not minimized
+    predictionButton.Visible = not minimized
+    flightToggleButton.Visible = not minimized
+    note.Visible = not minimized
+    close.Visible = not minimized
+
+    main.Size = minimized and UDim2.fromOffset(175, 48) or UDim2.fromOffset(230, 245)
+    header.Visible = true
+    header.Size = minimized and UDim2.new(1, -42, 1, 0) or UDim2.new(1, -82, 0, 36)
+    header.Position = minimized and UDim2.fromOffset(10, 0) or UDim2.fromOffset(12, 3)
+    header.Text = "TURBO HUB • BETA 1.041"
+
+    if minimized then
+        minimizeButton.Text = "ABRIR ☰"
+        minimizeButton.Size = UDim2.fromOffset(36, 34)
+        minimizeButton.Position = UDim2.new(1, -41, 0, 7)
+    else
+        minimizeButton.Text = "−"
+        minimizeButton.Size = UDim2.fromOffset(30, 28)
+        minimizeButton.Position = UDim2.new(1, -75, 0, 5)
+    end
+end)
+
+local function cleanup()
+    if connection then connection:Disconnect() end
+    clearTrail()
+    for _, part in ipairs({marker, guideLine, }) do
+        if part and part.Parent then part:Destroy() end
+    end
+end
+
+close.Activated:Connect(function()
+    stopVisualFlight()
+    cleanup()
+    gui:Destroy()
+end)
+gui.Destroying:Connect(cleanup)
+
+local elapsed = 0
+connection = RunService.Heartbeat:Connect(function(dt)
+    elapsed += dt
+    if elapsed < 0.06 then return end
+    elapsed = 0
+
+    if not ballPart or not ballPart.Parent then
+        ballPart = findBall()
+        lastPos, lastTime = nil, nil
+    end
+    if not ballPart then
+        status.Text = "Bola não encontrada • procurando..."
+        marker.Transparency = 1
+        guideLine.Transparency = 1
+        setHidden(true)
+        clearTrail()
+        return
+    end
+
+    local now = os.clock()
+    local pos = ballPart.Position
+    local vel = getVelocity(ballPart, pos, now)
+    local char = player.Character
+    local root = char and (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart)
+    local distance = root and math.floor((pos - root.Position).Magnitude) or 0
+    status.Text = "Bola detectada • " .. distance .. " studs"
+
+    if tracking then
+        marker.Transparency = 0.35
+        marker.Position = pos
+        if root and root:IsA("BasePart") then
+            local startPos = root.Position + Vector3.new(0, 1.5, 0)
+            local delta = pos - startPos
+            if delta.Magnitude > 0.5 then
+                guideLine.Transparency = 0.18
+                guideLine.Size = Vector3.new(0.22, 0.22, delta.Magnitude)
+                guideLine.CFrame = CFrame.lookAt((startPos + pos) / 2, pos)
+            else
+                guideLine.Transparency = 1
+            end
+        else
+            guideLine.Transparency = 1
+        end
+    else
+        marker.Transparency = 1
+        guideLine.Transparency = 1
+    end
+
+    if tracking and prediction then
+        drawTrajectory(pos, vel)
+    else
+        clearTrail()
+    end
+
+    lastPos, lastTime = pos, now
+end)
